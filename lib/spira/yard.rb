@@ -3,6 +3,14 @@
 # This handler processes {property} and {has_many} calls inside classes and
 # transforms them into attribute definitions. Document them as you would
 # `attr_accessor`.
+#
+# @example Using it from a Rakefile
+#   require 'yard'
+#   require 'spira/yard'
+#
+#   YARD::Rake::YardocTask.new do |yard|
+#     # Set YARD options.
+#   end
 class SpiraPropertyHandler < YARD::Handlers::Ruby::Base
   namespace_only
   handles method_call(:property), method_call(:has_many)
