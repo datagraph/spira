@@ -237,7 +237,11 @@ module Spira
           @dirty[property] = nil
           @attributes[:copied][property] = NOT_SET
         end
-        self.class.repository_or_fail.insert(RDF::Statement.new(@subject, RDF.type, type)) unless type.nil?
+        if (!type.nil?)
+          type_statement = RDF::Statement.new(@subject, RDF.type, type) 
+          self.class.repository_or_fail.delete(type_statement)
+          self.class.repository_or_fail.insert(type_statement)
+        end
       end
  
       ## 
