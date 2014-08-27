@@ -139,7 +139,7 @@ module Spira
       #     @object.destroy!(:completely)
       # @return [true, false] Whether or not the destroy was successful
       def destroy!(what = nil)
-        before_destroy if self.respond_to?(:before_destroy)
+        before_destroy if self.respond_to?(:before_destroy, true)
         result = case what
           when nil
             _destroy_attributes(attributes, :destroy_type => true) != nil
@@ -150,7 +150,7 @@ module Spira
           when :completely
             destroy!(:subject) && destroy!(:object)
         end
-        after_destroy if self.respond_to?(:after_destroy) if result
+        after_destroy if self.respond_to?(:after_destroy, true) if result
         result
       end
 
@@ -159,9 +159,9 @@ module Spira
       #
       # @return [self] self
       def save!
-        existed = (self.respond_to?(:before_create) || self.respond_to?(:after_create)) && !self.type.nil? && exists?
-        before_create if self.respond_to?(:before_create) && !self.type.nil? && !existed
-        before_save if self.respond_to?(:before_save)
+        existed = (self.respond_to?(:before_create, true) || self.respond_to?(:after_create, true)) && !self.type.nil? && exists?
+        before_create if self.respond_to?(:before_create, true) && !self.type.nil? && !existed
+        before_save if self.respond_to?(:before_save, true)
         # we use the non-raising validate and check it to make a slightly different error message.  worth it?...
         case validate
           when true
@@ -169,8 +169,8 @@ module Spira
           when false
             raise(ValidationError, "Could not save #{self.inspect} due to validation errors: " + errors.each.join(';'))
         end
-        after_create if self.respond_to?(:after_create) && !self.type.nil? && !existed
-        after_save if self.respond_to?(:after_save)
+        after_create if self.respond_to?(:after_create, true) && !self.type.nil? && !existed
+        after_save if self.respond_to?(:after_save, true)
         self
       end
 
@@ -192,7 +192,7 @@ module Spira
         properties.each do |property, value|
           attribute_set(property, value)
         end
-        after_update if self.respond_to?(:after_update)
+        after_update if self.respond_to?(:after_update, true)
         self
       end
 
@@ -220,24 +220,24 @@ module Spira
       #
       # @private
       def _update!
+        repo = self.class.repository_or_fail
         self.class.properties.each do |property, predicate|
+          value = attribute_get(property)
           if dirty?(property)
-            self.class.repository_or_fail.delete([subject, predicate[:predicate], nil])
+            repo.delete([subject, predicate[:predicate], nil])
             if self.class.is_list?(property)
-              repo = RDF::Repository.new
-              attribute_get(property).each do |value|
-                repo << RDF::Statement.new(subject, predicate[:predicate], self.class.build_rdf_value(value, self.class.properties[property][:type]))
+              value.each do |val|
+                store_attribute(property, val, predicate[:predicate], repo)
               end
-              self.class.repository_or_fail.insert(*repo)
             else
-              self.class.repository_or_fail.insert(RDF::Statement.new(subject, predicate[:predicate], self.class.build_rdf_value(attribute_get(property), self.class.properties[property][:type]))) unless attribute_get(property).nil?
+              store_attribute(property, value, predicate[:predicate], repo)
             end
           end
-          @attributes[:original][property] = attribute_get(property)
+          @attributes[:original][property] = value
           @dirty[property] = nil
           @attributes[:copied][property] = NOT_SET
         end
-        self.class.repository_or_fail.insert(RDF::Statement.new(@subject, RDF.type, type)) unless type.nil?
+        repo.insert(RDF::Statement.new(@subject, RDF.type, type)) if type
       end
  
       ## 
@@ -361,21 +361,18 @@ module Spira
       # @param [Hash] attributes The attributes to create a repository for
       # @private
       def repository_for_attributes(attributes)
-        repo = RDF::Repository.new
-        attributes.each do | name, attribute |
-          if self.class.is_list?(name)
-            new = []
-            attribute.each do |value|
-              value = self.class.build_rdf_value(value, self.class.properties[name][:type])
-              new << RDF::Statement.new(@subject, self.class.properties[name][:predicate], value)
+        RDF::Repository.new.tap do |repo|
+          attributes.each do | name, attribute |
+            predicate = self.class.properties[name][:predicate]
+            if self.class.is_list?(name)
+              attribute.each do |value|
+                store_attribute(name, value, predicate, repo)
+              end
+            else
+              store_attribute(name, attribute, predicate, repo)
             end
-            repo.insert(*new)
-          else
-            value = self.class.build_rdf_value(attribute, self.class.properties[name][:type])
-            repo.insert(RDF::Statement.new(@subject, self.class.properties[name][:predicate], value))
           end
         end
-        repo
       end
 
       ##
@@ -561,6 +558,16 @@ module Spira
 
       ## Include the base validation functions
       include Spira::Resource::Validations
+
+
+      private
+
+      def store_attribute(property, value, predicate, repository)
+        if value
+          val = self.class.build_rdf_value(value, self.class.properties[property][:type])
+          repository.insert(RDF::Statement.new(subject, predicate, val))
+        end
+      end
 
     end  
   end
